@@ -6,6 +6,7 @@ import torch.optim as optim
 from torchvision import datasets, transforms
 import numpy as np
 import matplotlib.pyplot as plt
+import os
 
 from model import Net
 
@@ -15,7 +16,8 @@ from model import Net
 def main():
     # Input
     epsilons = [0, .05, .1, .15, .2, .25, .3]
-    pretrained_model = "/Users/jessicayang/Workspace/Research/fgsm_tutorial/results/model.pth"
+    model_path = os.getcwd() + "/results/model.pth"
+    pretrained_model = model_path
     use_cuda=False
 
     # MNIST Test dataset and dataloader declaration
@@ -33,9 +35,6 @@ def main():
     input_size = 320
     num_classes = 10
     network = Net(input_size, hidden_size=50, out_size=num_classes).to(device)
-
-    network_state_dict = torch.load('/Users/jessicayang/Workspace/Research/fgsm_tutorial/results/model.pth')
-    network.load_state_dict(network_state_dict)
 
     # Load the pretrained model
     network.load_state_dict(torch.load(pretrained_model, map_location='cpu'))
