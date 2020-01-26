@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import os
 
 from model import Net
+from test import test as check_performance
 
 # note
 # pillow stops working after version 6.2.2
@@ -39,6 +40,10 @@ def main():
     # Load the pretrained model
     network.load_state_dict(torch.load(pretrained_model, map_location='cpu'))
 
+    # check performance of saved model
+    test_losses = []
+    check_performance(network, test_losses, test_loader)
+    
     # Set the model in evaluation mode. In this case this is for the Dropout layers
     network.eval()
 
