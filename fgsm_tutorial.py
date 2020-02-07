@@ -17,8 +17,9 @@ from test import test as check_performance
 def main():
     # Input
     epsilons = [0, .05, .1, .15, .2, .25, .3]
-    model_path = os.getcwd() + "/results/model.pth"
+    model_path = os.getcwd() + "/fgsm_adversarial_ml/results/model.pth"
     pretrained_model = model_path
+    print(model_path)
     use_cuda=False
 
     # MNIST Test dataset and dataloader declaration
@@ -85,6 +86,16 @@ def main():
     plt.show()
 
 # FGSM attack code
+'''
+Minimize the loss by adjusting the weights based on the backpropagated gradients, 
+the attack adjusts the input data to maximize the loss based on the same backpropagated gradients. 
+In other words, the attack uses the gradient of the loss w.r.t the input data, 
+then adjusts the input data to maximize the loss.
+
+image - bunch of pixels
+epsilon - pixel change
+data_grad - minimize loss
+'''
 def fgsm_attack(image, epsilon, data_grad):
     # Collect the element-wise sign of the data gradient
     sign_data_grad = data_grad.sign()
@@ -94,6 +105,34 @@ def fgsm_attack(image, epsilon, data_grad):
     perturbed_image = torch.clamp(perturbed_image, 0, 1)
     # Return the perturbed image
     return perturbed_image
+
+'''
+for 1:10
+    #step * step size >= radius
+    clamp radius
+    fgsm gradient - careful about tracking gradient for reinitializing bug
+    return purturbed image
+
+radius = 1
+conduct a bunch of small fgsm attacks
+'''
+def pgd_attack(image, epsilon, data_grad):
+    alpha = epsilon/10
+    perturbed_image = image
+
+    for x in range(0,10):
+        perturbed_image = fgsm_attack(perturbed_image, alpha, data_grad)
+
+    return perturbed_image
+
+def test_number(n):
+    p=n
+    for x in range(0,10):
+        p=p+1
+
+    print("num ")
+    print(p)
+    return p
 
 def test( model, device, test_loader, epsilon ):
 
@@ -131,7 +170,8 @@ def test( model, device, test_loader, epsilon ):
         data_grad = data.grad.data
 
         # Call FGSM Attack
-        perturbed_data = fgsm_attack(data, epsilon, data_grad)
+        #perturbed_data = fgsm_attack(data, epsilon, data_grad)
+        perturbed_data = pgd_attack(data, epsilon, data_grad)
 
         # Re-classify the perturbed image
         output = model(perturbed_data)
@@ -159,4 +199,5 @@ def test( model, device, test_loader, epsilon ):
 
 
 if __name__ == '__main__':
+    #test_number(1)
     main()
