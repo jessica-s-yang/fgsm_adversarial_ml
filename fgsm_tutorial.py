@@ -1,15 +1,16 @@
 from __future__ import print_function
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
+import torchvision
 import torch.optim as optim
 from torchvision import datasets, transforms
+import torch.nn.functional as F
+import torch.nn as nn
 import numpy as np
 import matplotlib.pyplot as plt
 import os
 
-from model import Net
-from test import test as check_performance
+from helper.model import Net
+from helper.test import test # don't need to use full performance visuals
 
 # note
 # pillow stops working after version 6.2.2
@@ -17,17 +18,7 @@ from test import test as check_performance
 def main():
     # Input
     epsilons = [0, .05, .1, .15, .2, .25, .3]
-    model_path = os.getcwd() + "/fgsm_adversarial_ml/results/model.pth"
-    pretrained_model = model_path
-    print(model_path)
-    use_cuda=False
-
-    # MNIST Test dataset and dataloader declaration
-    test_loader = torch.utils.data.DataLoader(
-        datasets.MNIST('../data', train=False, download=True, transform=transforms.Compose([
-                transforms.ToTensor(),
-                ])),
-            batch_size=1, shuffle=True)
+    use_cuda=True
 
     # Define what device we are using
     print("CUDA Available: ",torch.cuda.is_available())
@@ -38,12 +29,39 @@ def main():
     num_classes = 10
     network = Net(input_size, hidden_size=50, out_size=num_classes).to(device)
 
-    # Load the pretrained model
-    network.load_state_dict(torch.load(pretrained_model, map_location='cpu'))
+    #load trained model
+    model_path = os.getcwd() + "/results/lenet_mnist_model.pth" #"/results/model.pth"
+    network_state_dict = torch.load(model_path, map_location='cpu')
+    network.load_state_dict(network_state_dict)
 
-    # check performance of saved model
-    test_losses = []
-    check_performance(network, test_losses, test_loader)
+    # print model's state dict
+    print("Model's state_dict:")
+    for param_tensor in network.state_dict():
+        print(param_tensor, "\t", network.state_dict()[param_tensor].size())
+
+    # MNIST Test dataset and dataloader declaration
+    transform = transforms.Compose([transforms.ToTensor()]) # without normalizing caused the drop to 40% accuracy
+    testset = torchvision.datasets.MNIST(root='./data', train=False,
+                                            download=True, transform=transform)
+    testloader = torch.utils.data.DataLoader(testset, batch_size=1,shuffle=True)
+
+    # MNIST Test dataset and dataloader declaration
+    # transform = transforms.Compose([transforms.ToTensor(),
+    #  transforms.Normalize((0.1307,), (0.3081,))]) # without normalizing caused the drop to 40% accuracy
+    # testset = torchvision.datasets.MNIST(root='./data', train=False,
+    #                                         download=True, transform=transform)
+    # testloader = torch.utils.data.DataLoader(testset, batch_size=1,shuffle=True)
+
+    # testloader = torch.utils.data.DataLoader(
+    # datasets.MNIST('../data', train=False, download=True, transform=transforms.Compose([
+    #         transforms.ToTensor(),
+    #         ])),batch_size=1, shuffle=True)
+    # best practice is to always normalize
+    # decision tree and random forest does not need normalizing
+
+    # test the performance
+    testlosses = []
+    test(network, testlosses, testloader)
     
     # Set the model in evaluation mode. In this case this is for the Dropout layers
     network.eval()
@@ -51,24 +69,18 @@ def main():
     # Run attack
     accuracies = []
     examples = []
-
-    # Run test for each epsilon
     for eps in epsilons:
-        acc, ex = test(network, device, test_loader, eps)
+        acc, ex = runAttack(network, device, testloader, eps)
         accuracies.append(acc)
         examples.append(ex)
 
-    # Results
-    plt.figure(figsize=(5,5))
-    plt.plot(epsilons, accuracies, "*-")
-    plt.yticks(np.arange(0, 1.1, step=0.1))
-    plt.xticks(np.arange(0, .35, step=0.05))
-    plt.title("Accuracy vs Epsilon")
-    plt.xlabel("Epsilon")
-    plt.ylabel("Accuracy")
-    plt.show()
+    # Accuracy vs Epsilon Results
+    epsilon2AccuraciesPlot(epsilons, accuracies)
 
     # Plot several examples of adversarial samples at each epsilon
+    samplingOverEpsilons(epsilons, examples)
+
+def samplingOverEpsilons(epsilons, examples):
     cnt = 0
     plt.figure(figsize=(8,10))
     for i in range(len(epsilons)):
@@ -83,6 +95,16 @@ def main():
             plt.title("{} -> {}".format(orig, adv))
             plt.imshow(ex, cmap="gray")
     plt.tight_layout()
+    plt.show()
+
+def epsilon2AccuraciesPlot(epsilons, accuracies):
+    plt.figure(figsize=(5,5))
+    plt.plot(epsilons, accuracies, "*-")
+    plt.yticks(np.arange(0, 1.1, step=0.1))
+    plt.xticks(np.arange(0, .35, step=0.05))
+    plt.title("Accuracy vs Epsilon")
+    plt.xlabel("Epsilon")
+    plt.ylabel("Accuracy")
     plt.show()
 
 # FGSM attack code
@@ -102,7 +124,7 @@ def fgsm_attack(image, epsilon, data_grad):
     # Create the perturbed image by adjusting each pixel of the input image
     perturbed_image = image + epsilon*sign_data_grad
     # Adding clipping to maintain [0,1] range
-    perturbed_image = torch.clamp(perturbed_image, 0, 1)
+    perturbed_image = torch.clamp(perturbed_image, 0, 1) # PGD needs to clamp to the rradius. A good radius is one that is not suspicious.
     # Return the perturbed image
     return perturbed_image
 
@@ -113,7 +135,8 @@ for 1:10
     fgsm gradient - careful about tracking gradient for reinitializing bug
     return purturbed image
 
-radius = 1
+radius = 0.1 check if it is suspicious
+
 conduct a bunch of small fgsm attacks
 '''
 def pgd_attack(image, epsilon, data_grad):
@@ -121,31 +144,34 @@ def pgd_attack(image, epsilon, data_grad):
     perturbed_image = image
 
     for x in range(0,10):
-        perturbed_image = fgsm_attack(perturbed_image, alpha, data_grad)
+        perturbed_image = fgsm_attack(perturbed_image, alpha, data_grad) # the data grad should be diff on each step
 
     return perturbed_image
 
-def test_number(n):
-    p=n
-    for x in range(0,10):
-        p=p+1
-
-    print("num ")
-    print(p)
-    return p
-
-def test( model, device, test_loader, epsilon ):
+def runAttack( model,device,test_loader, epsilon ):
 
     # Accuracy counter
     correct = 0
     adv_examples = []
 
     # Loop over all examples in test set
-    for data, target in test_loader:
+    correct = loopOverTestSet(test_loader, device, model, epsilon, adv_examples, correct)
 
+    # Calculate final accuracy for this epsilon
+    final_acc = correct/float(len(test_loader))
+    print("Epsilon: {}\tTest Accuracy = {} / {} = {}".format(epsilon, correct, len(test_loader), final_acc))
+
+    # Return the accuracy and an adversarial example
+    return final_acc, adv_examples
+
+# taking a step with a calc gradient
+# 
+def loopOverTestSet(test_loader, device, model, epsilon, adv_examples, correct):
+    for data, target in test_loader:
         # Send the data and label to the device
         data, target = data.to(device), target.to(device)
 
+        ## this and down goes into pgd attack
         # Set requires_grad attribute of tensor. Important for Attack
         data.requires_grad = True
 
@@ -170,34 +196,31 @@ def test( model, device, test_loader, epsilon ):
         data_grad = data.grad.data
 
         # Call FGSM Attack
-        #perturbed_data = fgsm_attack(data, epsilon, data_grad)
-        perturbed_data = pgd_attack(data, epsilon, data_grad)
+        perturbed_data = fgsm_attack(data, epsilon, data_grad)
+        #perturbed_data = pgd_attack(data, epsilon, data_grad)
 
         # Re-classify the perturbed image
         output = model(perturbed_data)
 
         # Check for success
         final_pred = output.max(1, keepdim=True)[1] # get the index of the max log-probability
-        if final_pred.item() == target.item():
-            correct += 1
-            # Special case for saving 0 epsilon examples
-            if (epsilon == 0) and (len(adv_examples) < 5):
-                adv_ex = perturbed_data.squeeze().detach().cpu().numpy()
-                adv_examples.append( (init_pred.item(), final_pred.item(), adv_ex) )
-        else:
-            # Save some adv examples for visualization later
-            if len(adv_examples) < 5:
-                adv_ex = perturbed_data.squeeze().detach().cpu().numpy()
-                adv_examples.append( (init_pred.item(), final_pred.item(), adv_ex) )
+        correct = checkForSuccess(final_pred, target, epsilon, adv_examples, perturbed_data, init_pred, correct)
+    return correct
 
-    # Calculate final accuracy for this epsilon
-    final_acc = correct/float(len(test_loader))
-    print("Epsilon: {}\tTest Accuracy = {} / {} = {}".format(epsilon, correct, len(test_loader), final_acc))
-
-    # Return the accuracy and an adversarial example
-    return final_acc, adv_examples
+def checkForSuccess(final_pred, target, epsilon, adv_examples, perturbed_data, init_pred, correct):
+    if final_pred.item() == target.item():
+        correct += 1
+        # Special case for saving 0 epsilon examples
+        if (epsilon == 0) and (len(adv_examples) < 5):
+            adv_ex = perturbed_data.squeeze().detach().cpu().numpy()
+            adv_examples.append( (init_pred.item(), final_pred.item(), adv_ex) )
+    else:
+        # Save some adv examples for visualization later
+        if len(adv_examples) < 5:
+            adv_ex = perturbed_data.squeeze().detach().cpu().numpy()
+            adv_examples.append( (init_pred.item(), final_pred.item(), adv_ex) )
+    return correct
 
 
 if __name__ == '__main__':
-    #test_number(1)
     main()

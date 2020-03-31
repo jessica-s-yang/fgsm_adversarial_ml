@@ -3,9 +3,9 @@ import torchvision
 import torch.optim as optim
 import torchvision.transforms as transforms
 import os
-from model import Net
+from helper.model import Net
 import matplotlib.pyplot as plt
-from test import test
+from helper.test import test
 
 input_size = 320
 num_classes = 10
@@ -32,8 +32,8 @@ testloader = torch.utils.data.DataLoader(testset, batch_size=4,
                                             shuffle=True, num_workers=2)
 
 # test the performance
-test_losses = []
-test(network, test_losses, testloader)
+testlosses = []
+test(network, testlosses, testloader)
 
 # demo of samples
 examples = enumerate(testloader)
